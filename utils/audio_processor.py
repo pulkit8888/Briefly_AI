@@ -1,15 +1,28 @@
-import yt_dlp
-from pydub import AudioSegment
 import os
+import subprocess
+import glob
+
+import yt_dlp
 
 DOWNLOAD_DIR = 'downloades'
-os.makedirs(DOWNLOAD_DIR,exist_ok = True)
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-def download_youtube_audio(url :str) ->str:
+
+def _run_ffmpeg(args: list[str]) -> None:
+    subprocess.run(
+        ["ffmpeg", "-y", *args],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+
+def download_youtube_audio(url: str) -> str:
     output_path = os.path.join(DOWNLOAD_DIR, "%(title)s.%(ext)s")
     ydl_opts = {
         "format": "bestaudio/best",
-        "outtmpl": output_path, 
+        "outtmpl": output_path,
         "postprocessors": [
             {
                 "key": "FFmpegExtractAudio",
@@ -25,34 +38,36 @@ def download_youtube_audio(url :str) ->str:
     return filename
 
 
-
 def convert_to_wav(input_path: str) -> str:
-    """Convert any audio/video file to WAV format using pydub."""
+    """Convert any audio/video file to WAV using ffmpeg, without importing pydub."""
     output_path = os.path.splitext(input_path)[0] + "_converted.wav"
-
-    """it identifies the format of the input file whether it is mp3,wav, and saves it in audio variable as AudioSegment object"""
-    audio = AudioSegment.from_file(input_path) 
-
-    audio = audio.set_channels(1).set_frame_rate(16000) #16khz
-    audio.export(output_path, format="wav")
+    _run_ffmpeg([
+        "-i", input_path,
+        "-ac", "1",
+        "-ar", "16000",
+        "-c:a", "pcm_s16le",
+        output_path,
+    ])
     return output_path
 
 
-
 def chunk_audio(wav_path: str, chunk_minutes: int = 2) -> list:
-    audio = AudioSegment.from_wav(wav_path)
-    """Split the WAV file into shorter segments so downstream STT does not
-    allocate giant FFT/STFT buffers for a very long clip."""
-    chunk_ms = max(1, chunk_minutes) * 60 * 1000
+    """Split a WAV file into shorter segments using ffmpeg so STT doesn't see a giant clip."""
+    chunk_seconds = max(1, chunk_minutes) * 60
+    base_dir = os.path.dirname(wav_path) or '.'
+    base_name = os.path.splitext(os.path.basename(wav_path))[0]
+    chunk_prefix = os.path.join(base_dir, f"{base_name}_chunk_")
 
-    chunks = []
+    _run_ffmpeg([
+        "-i", wav_path,
+        "-f", "segment",
+        "-segment_time", str(chunk_seconds),
+        "-reset_timestamps", "1",
+        "-c:a", "pcm_s16le",
+        f"{chunk_prefix}%03d.wav",
+    ])
 
-    for i, start in enumerate(range(0, len(audio), chunk_ms)):
-        chunk = audio[start:start + chunk_ms]
-        chunk_path = f"{wav_path}_chunk_{i}.wav"
-        chunk.export(chunk_path, format="wav")
-        chunks.append(chunk_path)
-
+    chunks = sorted(glob.glob(f"{chunk_prefix}*.wav"))
     return chunks
 
 def process_input(source: str) -> list:
