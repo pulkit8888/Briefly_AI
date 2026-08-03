@@ -18,6 +18,8 @@ deep-translator>=1.11.4           # Lightweight translation wrapper (Google back
 langchain>=0.2.0
 langchain-core>=0.2.0
 langchain-community>=0.2.0
+langchain-chroma>=0.1.0           # Chroma vector store integration used by the RAG layer
+langchain-text-splitters>=0.2.0    # Text chunking used by the vector store builder
 langchain-mistralai>=0.1.0        # LangChain wrapper for Mistral API
 mistralai>=0.4.0                  # Official Mistral Python client
 
