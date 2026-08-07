@@ -6,6 +6,9 @@ except ModuleNotFoundError:
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
+import hashlib
+import json
+import os
 
 CHROMA_DIR = "vector_db"
 COLLECTION_NAME = "meeting_transcript"
@@ -27,11 +30,47 @@ def build_vector_store(transcript : str)->Chroma:
     )
     chunks = splitter.split_text(transcript)
 
+    def _text_hash(text: str) -> str:
+        return hashlib.sha256(text.encode('utf-8')).hexdigest()
+
+    # prepare documents with a stable content hash for deduplication
     docs = [
-        Document(page_content=chunk, metadata = {'chunk_index' : i})
+        Document(page_content=chunk, metadata = {'chunk_index' : i, 'text_hash': _text_hash(chunk)})
         for i,chunk in enumerate(chunks)
     ]
 
+    hashes_file = os.path.join(CHROMA_DIR, "hashes.json")
+
+    # If a persisted vector DB exists, load it and only add new documents
+    if os.path.exists(CHROMA_DIR) and any(os.scandir(CHROMA_DIR)):
+        embedding_model = get_embedding_model()
+        vector_store = load_vector_store()
+
+        # load known hashes
+        try:
+            with open(hashes_file, 'r', encoding='utf-8') as f:
+                known_hashes = set(json.load(f))
+        except Exception:
+            known_hashes = set()
+
+        new_docs = [d for d in docs if d.metadata.get('text_hash') not in known_hashes]
+
+        if new_docs:
+            vector_store.add_documents(new_docs)
+            try:
+                vector_store.persist()
+            except Exception:
+                pass
+
+            # update persisted hash list
+            known_hashes.update([d.metadata.get('text_hash') for d in new_docs])
+            os.makedirs(CHROMA_DIR, exist_ok=True)
+            with open(hashes_file, 'w', encoding='utf-8') as f:
+                json.dump(list(known_hashes), f)
+
+        return vector_store
+
+    # No persisted DB — create fresh one and save hashes
     embedding_model = get_embedding_model()
     vector_store = Chroma.from_documents(
         documents= docs,
@@ -39,6 +78,14 @@ def build_vector_store(transcript : str)->Chroma:
         collection_name=COLLECTION_NAME,
         persist_directory=CHROMA_DIR
     )
+
+    # persist hashes for future dedup checks
+    os.makedirs(CHROMA_DIR, exist_ok=True)
+    try:
+        with open(hashes_file, 'w', encoding='utf-8') as f:
+            json.dump([d.metadata.get('text_hash') for d in docs], f)
+    except Exception:
+        pass
 
     return vector_store
 

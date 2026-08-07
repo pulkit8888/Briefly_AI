@@ -23,6 +23,8 @@ def build_rag_chain(transcript:str):
 
     llm = get_llm()
 
+    
+
     prompt = ChatPromptTemplate.from_messages(
 
         [(
