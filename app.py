@@ -330,6 +330,14 @@ label { color: var(--text-muted) !important; font-size: 0.8rem !important; }
 </style>
 """, unsafe_allow_html=True)
 
+# Hide Streamlit's top-right menu and deploy button (three-dot menu)
+st.markdown("""
+<style>
+#MainMenu {display: none !important;}
+header {display: none !important;}
+</style>
+""", unsafe_allow_html=True)
+
 # ─── Session State Init ──────────────────────────────────────────────────────────
 for key, default in {
     "result": None,
