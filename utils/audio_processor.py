@@ -4,7 +4,7 @@ import glob
 
 import yt_dlp
 
-DOWNLOAD_DIR = 'downloades'
+DOWNLOAD_DIR = 'downloads'
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 
