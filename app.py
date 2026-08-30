@@ -6,8 +6,12 @@ from core.transcriber import transcribe_all
 from core.summarizer import summarize, generate_title
 from core.extractor import extract_action_items, extract_key_decisions, extract_questions
 from core.rag_engine import build_rag_chain, ask_question
+from core.run_control import PipelineCancelled, cancel_active_run, finish_run, start_run
 
 load_dotenv()
+
+# A fresh browser page cancels any analysis left running by the previous page.
+cancel_active_run()
 
 # ─── Page Config ────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -424,32 +428,43 @@ if run_btn:
                 ]:
                     render_step_bar(label, step, icon)
 
+        token = None
         try:
             with progress_placeholder.container():
                 st.info("⚙️ Pipeline running — see sidebar for live status…")
 
+            token = start_run()
+            check_cancelled = token.check
+
             update_step("audio", "active")
-            chunks = process_input(source)
+            chunks = process_input(source, is_cancelled=check_cancelled)
             update_step("audio", "done")
 
+            check_cancelled()
             update_step("transcript", "active")
-            transcript = transcribe_all(chunks, language)
+            transcript = transcribe_all(chunks, language, is_cancelled=check_cancelled)
             update_step("transcript", "done")
 
+            check_cancelled()
             update_step("title", "active")
             title = generate_title(transcript)
             update_step("title", "done")
 
+            check_cancelled()
             update_step("summary", "active")
             summary = summarize(transcript)
             update_step("summary", "done")
 
+            check_cancelled()
             update_step("extract", "active")
             action_items  = extract_action_items(transcript)
+            check_cancelled()
             decisions     = extract_key_decisions(transcript)
+            check_cancelled()
             questions     = extract_questions(transcript)
             update_step("extract", "done")
 
+            check_cancelled()
             update_step("rag", "active")
             rag_chain = build_rag_chain(transcript)
             update_step("rag", "done")
@@ -469,11 +484,17 @@ if run_btn:
             progress_placeholder.empty()
             st.rerun()
 
+        except PipelineCancelled:
+            st.session_state.pipeline_steps = {}
+            progress_placeholder.info("Analysis stopped because the page was refreshed.")
         except Exception as e:
             for k in ["audio","transcript","title","summary","extract","rag"]:
                 if st.session_state.pipeline_steps.get(k) == "active":
                     st.session_state.pipeline_steps[k] = "pending"
             progress_placeholder.error(f"❌ Error: {e}")
+        finally:
+            if token is not None:
+                finish_run(token)
 
 # ── Results ──────────────────────────────────────────────────────────────────────
 if st.session_state.result:

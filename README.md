@@ -1,439 +1,240 @@
-# 🎬 Briefly AI — AI Video & Meeting Assistant
+# Briefly AI
 
-> **Transcribe · Summarise · Chat with your meetings**
->
-> An end-to-end AI pipeline that takes any YouTube URL or local video/audio file, transcribes it with Whisper, extracts structured insights with Mistral LLM, and lets you have a RAG-powered conversation with the full transcript — all through a sleek Streamlit UI or a lightweight CLI.
+Briefly AI accepts a YouTube URL or a local audio/video file path, transcribes it locally with Whisper, creates a meeting report with Mistral, and provides a transcript-grounded chat interface.
 
----
+## Features
 
-## 📋 Table of Contents
+- Download audio from a YouTube URL or convert a local media file with FFmpeg.
+- Transcribe English, Hindi, or Hinglish audio with local `faster-whisper`.
+- Generate a title, summary, action items, key decisions, and open questions.
+- Ask questions about the transcript through a ChromaDB-backed RAG chat.
+- Use Mistral Small as the primary LLM and Mistral Large as the fallback model.
+- Cancel an active analysis when the Streamlit page is refreshed.
+- Limit local ML CPU memory use to help prevent `mkl_malloc` allocation errors.
 
-- [What It Does](#-what-it-does)
-- [Architecture](#-architecture)
-- [Project Structure](#-project-structure)
-- [Tech Stack](#-tech-stack)
-- [Prerequisites](#-prerequisites)
-- [Installation](#-installation)
-- [Configuration](#-configuration)
-- [Running the App](#-running-the-app)
-- [CLI Usage](#-cli-usage)
-- [Pipeline Walkthrough](#-pipeline-walkthrough)
-- [Module Reference](#-module-reference)
-- [Supported Languages](#-supported-languages)
-- [Environment Variables](#-environment-variables)
-- [Known Limitations & Tips](#-known-limitations--tips)
-- [Contributing](#-contributing)
-- [License](#-license)
+## How it works
 
----
-
-## ✨ What It Does
-
-Briefly AI turns any video or audio source into a complete intelligence report in minutes:
-
-| Feature | Description |
-|---|---|
-| 🔊 **Audio Extraction** | Downloads audio from YouTube URLs via `yt-dlp` or converts local files via `ffmpeg` |
-| 📝 **Speech-to-Text** | Runs local Whisper (`faster-whisper`) — no external STT API needed |
-| 🏷️ **Title Generation** | Auto-generates a professional meeting title using Mistral LLM |
-| 📋 **Summarisation** | Map-Reduce summarisation pipeline for long transcripts |
-| ✅ **Action Items** | Extracts tasks with owner and deadline from the transcript |
-| 🔑 **Key Decisions** | Lists every decision made during the session |
-| ❓ **Open Questions** | Surfaces unresolved questions / follow-up items |
-| 🧠 **RAG Chat** | Chat with the full transcript using a Chroma + Mistral RAG pipeline |
-| 🖥️ **Streamlit UI** | Beautiful dark-mode web interface with live pipeline status |
-| 💻 **CLI Mode** | Headless terminal interface for scripting and automation |
-
----
-
-## 🏗️ Architecture
-
-```
-Input (YouTube URL / Local File)
-          │
-          ▼
-┌─────────────────────┐
-│   Audio Processor   │  yt-dlp  +  ffmpeg
-│  (utils/audio_      │  ───────────────────
-│   processor.py)     │  Download → Convert WAV → Chunk (2-min segments)
-└─────────┬───────────┘
-          │  audio chunks []
-          ▼
-┌─────────────────────┐
-│    Transcriber      │  faster-whisper (local, CPU/GPU)
-│  (core/transcriber  │  ───────────────────────────────
-│       .py)          │  Chunk-by-chunk STT → full transcript string
-└─────────┬───────────┘
-          │  transcript (str)
-          ├──────────────────────────────────────────────┐
-          ▼                                              ▼
-┌──────────────────────┐                    ┌────────────────────────┐
-│  Summariser +        │  Mistral LLM       │   Vector Store Builder │
-│  Extractor           │  (LangChain LCEL)  │   (core/vector_store   │
-│  (core/summarizer.py │  ────────────────  │        .py)            │
-│   core/extractor.py) │  Title             │  HuggingFace Embeddings│
-│                      │  Summary           │  all-MiniLM-L6-v2      │
-│                      │  Action Items      │  + ChromaDB            │
-│                      │  Key Decisions     └─────────┬──────────────┘
-│                      │  Open Questions              │  vector store
-└──────────────────────┘                    ┌─────────▼──────────────┐
-                                            │    RAG Engine          │
-                                            │  (core/rag_engine.py)  │
-                                            │  Retriever (k=4)       │
-                                            │  + Mistral LLM         │
-                                            │  + LCEL Chain          │
-                                            └────────────────────────┘
-                                                       │
-                                            ┌──────────▼─────────────┐
-                                            │   Streamlit UI / CLI   │
-                                            │  Interactive Q&A Chat  │
-                                            └────────────────────────┘
+```text
+YouTube URL or local file path
+            |
+            v
+utils/audio_processor.py
+  - YouTube: yt-dlp downloads audio as WAV
+  - Local file: FFmpeg converts to 16 kHz mono WAV
+  - FFmpeg splits audio into two-minute WAV chunks
+            |
+            v
+core/transcriber.py
+  - faster-whisper transcribes chunks sequentially
+  - VAD removes silence
+  - chunk text is joined into one transcript
+            |
+            +-------------------------------+
+            |                               |
+            v                               v
+core/summarizer.py + core/extractor.py   core/vector_store.py
+  - title and map-reduce summary           - split transcript into chunks
+  - actions, decisions, questions          - create sentence embeddings
+  - Mistral Small -> Mistral Large          - persist them in ChromaDB
+            |                               |
+            +---------------+---------------+
+                            v
+                     core/rag_engine.py
+              retrieve the 4 closest chunks
+              and answer with Mistral
 ```
 
----
+## Project structure
 
-## 📁 Project Structure
-
-```
-AI-Video-Assistant--main/
-│
-├── app.py                  # Streamlit web application (main UI)
-├── main.py                 # CLI entry point
-├── requirements.txt        # All Python dependencies
-├── .env                    # API keys (not committed — you create this)
-├── .gitignore
-│
-├── core/                   # Core AI pipeline modules
-│   ├── transcriber.py      # Whisper speech-to-text
-│   ├── summarizer.py       # LLM-based summarisation + title generation
-│   ├── extractor.py        # Action items / decisions / questions extraction
-│   ├── rag_engine.py       # RAG chain (retriever + Mistral LLM)
-│   └── vector_store.py     # ChromaDB vector store builder & loader
-│
-└── utils/                  # Utility helpers
-    └── audio_processor.py  # YouTube download, format conversion, chunking
+```text
+Ai_assis/
+├── app.py                    # Streamlit UI and web-pipeline orchestration
+├── main.py                   # Command-line pipeline and chat loop
+├── requirements.txt          # Python dependencies
+├── .env                      # Your Mistral API key (create locally; not committed)
+├── .vscode/
+│   └── settings.json          # Selects the project .venv for VS Code/Pylance
+├── core/
+│   ├── llm.py                # Mistral primary/fallback configuration
+│   ├── run_control.py        # Refresh-aware cancellation token
+│   ├── transcriber.py        # Local Whisper transcription
+│   ├── summarizer.py         # Title generation and map-reduce summary
+│   ├── extractor.py          # Actions, decisions, and questions
+│   ├── vector_store.py       # ChromaDB embeddings and retrieval
+│   └── rag_engine.py         # Transcript question-answering chain
+└── utils/
+    └── audio_processor.py    # YouTube download, conversion, and chunking
 ```
 
-> **Auto-created at runtime** (gitignored):
-> - `downloads/` — downloaded/converted WAV files
-> - `vector_db/` — persisted ChromaDB embeddings
+Runtime folders, ignored by Git:
 
----
+- `downloads/` stores downloaded, converted, and chunked audio.
+- `vector_db/` stores the persisted ChromaDB collection.
 
-## 🛠️ Tech Stack
+## Requirements
 
-### AI / ML
-| Library | Role |
-|---|---|
-| `faster-whisper` | Local speech-to-text (Whisper tiny model, CPU, int8) |
-| `openai-whisper` | Whisper model definitions |
-| `torch` + `torchaudio` | PyTorch backend for Whisper |
-| `mistralai` + `langchain-mistralai` | LLM for summarisation, extraction & RAG |
-| `sentence-transformers` | HuggingFace embeddings (`all-MiniLM-L6-v2`) |
-| `langchain-huggingface` | LangChain ↔ HuggingFace bridge |
+- Python 3.10 or newer.
+- FFmpeg available on your system `PATH`.
+- A Mistral API key.
 
-### Orchestration
-| Library | Role |
-|---|---|
-| `langchain` | LLM orchestration framework |
-| `langchain-core` | LCEL (LangChain Expression Language) chains |
-| `langchain-community` | Community integrations |
-| `langchain-text-splitters` | Recursive character text splitting |
-| `langchain-chroma` | ChromaDB ↔ LangChain bridge |
+On Windows, install FFmpeg with:
 
-### Vector Store
-| Library | Role |
-|---|---|
-| `chromadb` | Local persistent vector database |
-| `tiktoken` | Token counting for text splitting |
-
-### Audio / Video
-| Tool | Role |
-|---|---|
-| `yt-dlp` | YouTube audio download |
-| `ffmpeg` *(system binary)* | Audio format conversion & chunking |
-| `ffmpeg-python` | Optional Python FFmpeg bindings |
-
-### UI & Utilities
-| Library | Role |
-|---|---|
-| `streamlit` | Web UI framework |
-| `streamlit-extras` | Additional Streamlit widgets |
-| `watchdog` | Hot-reload file watcher for Streamlit |
-| `reportlab` + `fpdf2` | PDF export utilities |
-| `deep-translator` | Hindi → English translation (Google backend) |
-| `python-dotenv` | `.env` file loading |
-| `numpy`, `tqdm`, `requests` | General utilities |
-
----
-
-## ✅ Prerequisites
-
-Before you start, ensure the following are installed on your system:
-
-### 1. Python 3.10+
-```bash
-python --version   # should be 3.10 or higher
-```
-
-### 2. FFmpeg (system binary — required)
-FFmpeg must be accessible from your `PATH`.
-
-**Windows:**
 ```powershell
-# Option A — via winget
 winget install --id=Gyan.FFmpeg -e
-
-# Option B — via Chocolatey
-choco install ffmpeg
-
-# Option C — manual: download from https://ffmpeg.org/download.html
-# and add the /bin folder to your PATH environment variable
 ```
 
-**macOS:**
-```bash
-brew install ffmpeg
-```
+Verify it with:
 
-**Linux:**
-```bash
-sudo apt install ffmpeg       # Debian/Ubuntu
-sudo dnf install ffmpeg       # Fedora
-```
-
-Verify:
-```bash
+```powershell
 ffmpeg -version
 ```
 
-### 3. Mistral API Key
-The app uses [Mistral AI](https://mistral.ai/) as its LLM backend. Sign up and grab a free API key at:
-👉 **https://console.mistral.ai/**
+## Setup
 
----
+From the project folder:
 
-## 🚀 Installation
-
-### Step 1 — Clone the repository
-```bash
-git clone https://github.com/your-username/AI-Video-Assistant.git
-cd AI-Video-Assistant--main
-```
-
-### Step 2 — Create a virtual environment
-```bash
-# Windows
+```powershell
 python -m venv .venv
-.venv\Scripts\activate
-
-# macOS / Linux
-python -m venv .venv
-source .venv/bin/activate
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
 ```
 
-### Step 3 — Install dependencies
-```bash
-pip install -r requirements.txt
-```
-
-> ⚠️ **PyTorch note:** If you have a CUDA-capable GPU and want faster transcription,
-> install the GPU version of PyTorch first before running the command above:
-> ```bash
-> pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
-> ```
-> Then edit `core/vector_store.py` and `core/transcriber.py` — change `"cpu"` → `"cuda"`.
-
----
-
-## ⚙️ Configuration
-
-Create a `.env` file in the project root:
+Create a `.env` file:
 
 ```env
-# .env
-MISTRAL_API_KEY=your_mistral_api_key_here
+MISTRAL_API_KEY=your_mistral_api_key
+
+# Optional model overrides
+MISTRAL_MODEL=mistral-small-latest
+MISTRAL_FALLBACK_MODEL=mistral-large-latest
 ```
 
-That's the only required configuration. The Whisper model (`tiny`) and HuggingFace embedding model (`all-MiniLM-L6-v2`) are downloaded automatically on first run.
+`MISTRAL_MODEL` is used first. If that call raises an error, LangChain retries the request using `MISTRAL_FALLBACK_MODEL`. Both models use the same Mistral API key; no OpenAI key is required.
 
----
+## Run the app
 
-## ▶️ Running the App
+Start the Streamlit app with the project environment:
 
-### Web UI (Streamlit) — Recommended
-
-```bash
-streamlit run app.py
+```powershell
+.\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
-The app will open automatically at **http://localhost:8501**
+Then open `http://localhost:8501`.
 
-**Usage:**
-1. Paste a **YouTube URL** or a **local file path** (MP4, MP3, WAV, etc.) in the sidebar
-2. Select the **language** (`english` or `hinglish`)
-3. Click **⚡ Analyse**
-4. Watch the live pipeline status bars update in the sidebar
-5. When complete, view:
-   - Session Title
-   - Summary
-   - Full Transcript (expandable)
-   - Action Items · Key Decisions · Open Questions
-6. Use the **💬 Chat** section to ask questions about the meeting
+1. Enter a YouTube URL or a local file path.
+2. Choose `english` or `hinglish`.
+3. Select **Analyse**.
+4. Review the title, summary, transcript, actions, decisions, and questions.
+5. Use **Chat with your Meeting** to ask about the transcript.
 
----
+The web UI currently accepts a local file path; it does not include a browser file-upload control.
 
-## 💻 CLI Usage
+### VS Code / Pylance
 
-For headless / scripted usage:
+The repository includes `.vscode/settings.json`, which points VS Code to `.venv`. If Pylance still marks installed packages as missing, reload the VS Code window or run **Python: Select Interpreter** and select:
 
-```bash
-python main.py
+```text
+.venv\Scripts\python.exe
 ```
 
-**Interactive prompts:**
-```
-Enter YouTube URL or local file path: https://youtube.com/watch?v=dQw4w9WgXcQ
-Language (english/hinglish): english
-```
+## CLI usage
 
-**Output:**
-```
-============================================================
-📌 Title:  Product Roadmap Q3 Discussion
-📋 Summary:
-  • Team agreed on three priority features for Q3 ...
-  • Budget allocation was discussed ...
-✅ Action Items:
-  1. John to finalize design mockups by Friday ...
-🔑 Key Decisions:
-  1. Launch date moved to September 15 ...
-❓ Open Questions:
-  1. Who owns the customer success handoff? ...
-============================================================
-💬 Chat with your meeting (type 'exit' to quit)
-
-You: What was decided about the launch date?
-🤖 Assistant: The team decided to move the launch date to September 15 ...
-
+```powershell
+.\.venv\Scripts\python.exe main.py
 ```
 
----
+The CLI asks for a source and language, prints the report, then starts an interactive chat. Type `exit`, `quit`, or `q` to leave the chat.
 
-## 🔄 Pipeline Walkthrough
+## Detailed execution flow
 
+### 1. Input and audio preparation
+
+`app.py` is the web entry point. On **Analyse**, it calls the functions below directly in sequence. `main.py` performs the same sequence for the command line.
+
+`utils/audio_processor.py` detects whether the source starts with `http://` or `https://`:
+
+- `download_youtube_audio()` uses `yt-dlp` to download YouTube audio as WAV.
+- `convert_to_wav()` uses FFmpeg to convert a local media path to mono, 16 kHz PCM WAV.
+- `chunk_audio()` uses FFmpeg to split the WAV into two-minute files.
+- `process_input()` returns the sorted list of generated chunk paths.
+
+### 2. Transcription
+
+`core/transcriber.py` lazily loads Whisper Tiny once, then sends each chunk to `faster-whisper` with:
+
+- CPU + `int8` inference
+- one CPU worker
+- voice activity detection (`vad_filter=True`)
+- 30-second internal Whisper windows
+- no timestamps in the returned text
+
+`transcribe_all()` joins the text of every audio chunk into one transcript string.
+
+### 3. LLM reporting
+
+`core/llm.py` provides the LLM used everywhere in the app. It creates:
+
+1. Mistral Small (`MISTRAL_MODEL`, default `mistral-small-latest`)
+2. Mistral Large fallback (`MISTRAL_FALLBACK_MODEL`, default `mistral-large-latest`)
+
+`core/summarizer.py` generates the title from the first 2,000 characters, then produces the summary with map-reduce processing:
+
+- split transcript: 3,000 characters with 200-character overlap
+- map: summarize each chunk
+- reduce: combine chunk summaries into bullet points
+
+`core/extractor.py` makes three Mistral calls to extract action items, key decisions, and open questions.
+
+### 4. RAG chat
+
+`core/vector_store.py` splits the transcript into 500-character chunks with 50-character overlap. It creates embeddings with `all-MiniLM-L6-v2` and stores them in the local ChromaDB collection `meeting_transcript`.
+
+`core/rag_engine.py` retrieves the four most similar chunks for a question, adds them to the prompt as context, and asks the Mistral LLM to answer only from that context.
+
+The vector database is persistent and shared across runs. It deduplicates chunks by content hash, so reset `vector_db/` if you need a completely fresh knowledge base.
+
+## Refresh cancellation
+
+`core/run_control.py` allows one active Streamlit analysis at a time. When the page is refreshed, `app.py` signals the previous run to stop.
+
+- FFmpeg conversion and chunking are stopped by terminating their running process.
+- YouTube download checks the signal through its progress hook.
+- Whisper checks between generated transcript segments and between audio chunks.
+- The app checks the signal before beginning each later report/RAG stage.
+
+An already-running remote Mistral request cannot be interrupted by this application; the pipeline stops as soon as that request returns. This is why cancellation may take a short time during an API call.
+
+## Memory settings
+
+`core/transcriber.py` and `core/vector_store.py` set the following before loading native ML libraries:
+
+```text
+MKL_DISABLE_FAST_MM=1
+OMP_NUM_THREADS=1
+MKL_NUM_THREADS=1
 ```
-Step 1: Audio Processing
-  └─ YouTube URL  → yt-dlp downloads best audio → converted to 16kHz mono WAV
-  └─ Local file   → ffmpeg converts to 16kHz mono WAV
-  └─ WAV file is split into 2-minute chunks (for memory-efficient transcription)
 
-Step 2: Transcription
-  └─ faster-whisper (tiny model) runs on each chunk sequentially
-  └─ VAD (Voice Activity Detection) filter removes silence
-  └─ All chunk texts are concatenated into one full transcript string
+Whisper also uses one worker and embedding requests use a batch size of four. These limits reduce memory spikes and help avoid `mkl_malloc: failed to allocate memory` on CPU-only machines. Restart Streamlit after changing code or environment settings so these take effect.
 
-Step 3: Title Generation
-  └─ First 2000 characters of transcript → Mistral LLM → short title (≤8 words)
+## Supported languages
 
-Step 4: Summarisation (Map-Reduce)
-  └─ Transcript split into 3000-char chunks with 200-char overlap
-  └─ Each chunk summarised independently (map phase)
-  └─ All summaries combined → final bullet-point summary (reduce phase)
-
-Step 5: Extraction
-  └─ Action Items  — task, owner, deadline extracted per item
-  └─ Key Decisions — numbered list of decisions
-  └─ Open Questions — unresolved or follow-up items
-
-Step 6: RAG Engine Build
-  └─ Transcript split into 500-char chunks (50-char overlap)
-  └─ Each chunk embedded with all-MiniLM-L6-v2 (HuggingFace)
-  └─ Embeddings stored in ChromaDB (persisted to vector_db/)
-  └─ LCEL chain: question → retriever (k=4) → Mistral LLM → answer
-```
-
----
-
-## 📦 Module Reference
-
-### `utils/audio_processor.py`
-| Function | Description |
-|---|---|
-| `process_input(source)` | Main entry — detects URL vs local file, returns list of WAV chunk paths |
-| `download_youtube_audio(url)` | Downloads best audio from YouTube using `yt-dlp`, converts to WAV |
-| `convert_to_wav(input_path)` | Converts any audio/video to 16kHz mono WAV via `ffmpeg` |
-| `chunk_audio(wav_path, chunk_minutes=2)` | Splits a WAV file into fixed-length segments using `ffmpeg` |
-
-### `core/transcriber.py`
-| Function | Description |
-|---|---|
-| `load_model()` | Lazily loads the `faster-whisper` `tiny` model (cached globally) |
-| `transcribe_chunk(chunk_path, language)` | Transcribes a single audio chunk |
-| `transcribe_all(chunks, language)` | Iterates all chunks and returns the concatenated transcript |
-
-### `core/summarizer.py`
-| Function | Description |
-|---|---|
-| `summarize(transcript)` | Map-Reduce summarisation via Mistral LLM |
-| `generate_title(transcript)` | Generates a short meeting title from the first 2000 chars |
-| `split_transcript(transcript)` | Splits transcript into 3000-char chunks for summarisation |
-
-### `core/extractor.py`
-| Function | Description |
-|---|---|
-| `extract_action_items(transcript)` | Extracts tasks with owner & deadline |
-| `extract_key_decisions(transcript)` | Extracts key decisions as a numbered list |
-| `extract_questions(transcript)` | Extracts open/unresolved questions |
-
-### `core/vector_store.py`
-| Function | Description |
-|---|---|
-| `build_vector_store(transcript)` | Splits, embeds, and stores transcript in ChromaDB |
-| `load_vector_store()` | Loads an existing ChromaDB collection from disk |
-| `get_retriever(vector_store, k=4)` | Returns a similarity-search retriever (top-k) |
-
-### `core/rag_engine.py`
-| Function | Description |
-|---|---|
-| `build_rag_chain(transcript)` | Builds the full LCEL RAG chain from transcript |
-| `load_rag_chain()` | Loads a previously persisted RAG chain |
-| `ask_question(rag_chain, question)` | Invokes the chain and returns the LLM answer |
-
----
-
-## 🌐 Supported Languages
-
-| Input | Whisper Code | Notes |
+| Input | Whisper language value | Availability |
 |---|---|---|
-| `english` | `en` | Full support |
-| `hinglish` | `None` (auto-detect) | Whisper auto-detects Hindi/English mix |
-| `hindi` | `hi` | Supported via language map |
+| `english` | `en` | Web UI and CLI |
+| `hinglish` | automatic detection | Web UI and CLI |
+| `hindi` | `hi` | CLI/API function only; not in the current web dropdown |
 
----
+## Key modules
 
-## 🔑 Environment Variables
-
-| Variable | Required | Description |
+| File | Key functions | Purpose |
 |---|---|---|
-| `MISTRAL_API_KEY` | ✅ Yes | API key from [console.mistral.ai](https://console.mistral.ai/) |
-
----
-
-## ⚠️ Known Limitations & Tips
-
-- **Whisper `tiny` model** is fast but less accurate than larger models. For production use, change `"tiny"` to `"base"`, `"small"`, or `"medium"` in `core/transcriber.py`.
-- **CPU-only by default.** For GPU acceleration, change `device="cpu"` to `device="cuda"` in both `core/transcriber.py` and `core/vector_store.py`.
-- **Long videos** (>1 hour) will take longer to transcribe. The 2-minute chunking strategy helps with memory but not wall-clock time.
-- **ChromaDB persistence:** The vector store is saved in `vector_db/`. Delete this folder if you want to reset embeddings between sessions.
-- **Mistral API rate limits:** Free-tier keys may hit rate limits on very long transcripts. The map-reduce summarisation already helps mitigate this.
-- **FFmpeg must be in PATH.** If you see `FileNotFoundError: ffmpeg`, ensure the `ffmpeg` binary is accessible globally.
-
----
-
-
-<div align="center">
-
-**Built with ❤️ using Whisper · LangChain · Mistral AI · ChromaDB · Streamlit**
-
-</div>
+| `app.py` | `update_step()` | Streamlit UI, progress state, cancellation, report rendering, and chat UI |
+| `main.py` | `run_pipeline()` | CLI orchestration and chat loop |
+| `core/llm.py` | `get_llm()` | Mistral primary and fallback runnable |
+| `core/run_control.py` | `start_run()`, `cancel_active_run()` | Refresh-aware cancellation state |
+| `utils/audio_processor.py` | `process_input()` | Media download/conversion/chunking |
+| `core/transcriber.py` | `transcribe_all()` | Local Whisper transcription |
+| `core/summarizer.py` | `generate_title()`, `summarize()` | Title and summary generation |
+| `core/extractor.py` | `extract_action_items()` | Meeting insight extraction |
+| `core/vector_store.py` | `build_vector_store()` | Embeddings and ChromaDB persistence |
+| `core/rag_engine.py` | `build_rag_chain()`, `ask_question()` | Retrieval-augmented chat |

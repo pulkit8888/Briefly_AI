@@ -1,16 +1,8 @@
-import os
-from langchain_mistralai import ChatMistralAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 from core.vector_store import build_vector_store, load_vector_store, get_retriever
-
-def get_llm():
-    return ChatMistralAI(
-        model="mistral-small-latest",
-        mistral_api_key=os.getenv("MISTRAL_API_KEY"),
-        temperature=0.3,
-    )
+from core.llm import get_llm
 
 def format_docs(docs):
     return "\n\n".join([doc.page_content for doc in docs])
@@ -21,7 +13,7 @@ def build_rag_chain(transcript:str):
 
     retriever = get_retriever(vector_store, k = 4)
 
-    llm = get_llm()
+    llm = get_llm(temperature=0.3)
 
     
 
@@ -61,7 +53,7 @@ def load_rag_chain():
     vector_store = load_vector_store()
     retriever = get_retriever(vector_store,k = 4)
 
-    llm = get_llm()
+    llm = get_llm(temperature=0.3)
     prompt = ChatPromptTemplate.from_messages([
         (
             "system",

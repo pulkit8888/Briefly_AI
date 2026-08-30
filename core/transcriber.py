@@ -1,5 +1,11 @@
-from faster_whisper import WhisperModel
 import os
+
+# Apply these before importing native ML libraries to avoid excessive MKL memory use.
+os.environ["MKL_DISABLE_FAST_MM"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+
+from faster_whisper import WhisperModel
 
 _model = None
 
@@ -10,7 +16,9 @@ def load_model():
 
     if _model is None:
         print("Loading Whisper model ...")
-        _model = WhisperModel("tiny", device="cpu", compute_type="int8")
+        _model = WhisperModel(
+            "tiny", device="cpu", compute_type="int8", cpu_threads=1, num_workers=1
+        )
         print("Whisper model loaded.")
     return _model
 
@@ -27,7 +35,7 @@ def _whisper_language_code(language: str) -> str | None:
     return language_map.get(normalized, None)
 
 
-def transcribe_chunk_whisper(chunk_path: str, language: str = "english") -> str:
+def transcribe_chunk_whisper(chunk_path: str, language: str = "english", is_cancelled=None) -> str:
 
     model = load_model()
     language_code = _whisper_language_code(language)
@@ -55,27 +63,33 @@ def transcribe_chunk_whisper(chunk_path: str, language: str = "english") -> str:
             language=language_code,
         )
 
-    text = " ".join([segment.text for segment in segments])
+    text_parts = []
+    for segment in segments:
+        if is_cancelled:
+            is_cancelled()
+        text_parts.append(segment.text)
 
-    return text.strip()
+    return " ".join(text_parts).strip()
 
 
-def transcribe_chunk(chunk_path: str, language: str = "english") -> str:
+def transcribe_chunk(chunk_path: str, language: str = "english", is_cancelled=None) -> str:
     """Use the same local Whisper model for English and Hindi audio."""
-    return transcribe_chunk_whisper(chunk_path, language=language)
+    return transcribe_chunk_whisper(chunk_path, language=language, is_cancelled=is_cancelled)
 
 
-def transcribe_all(chunks: list, language: str = "english") -> str:
+def transcribe_all(chunks: list, language: str = "english", is_cancelled=None) -> str:
 
     full_transcript = ""
 
     print("Using Whisper for transcription.")
 
     for i, chunk in enumerate(chunks):
+        if is_cancelled:
+            is_cancelled()
 
         print(f"Transcribing chunk {i + 1}/{len(chunks)}...")
 
-        text = transcribe_chunk(chunk, language=language)
+        text = transcribe_chunk(chunk, language=language, is_cancelled=is_cancelled)
 
         full_transcript += text + " "
 

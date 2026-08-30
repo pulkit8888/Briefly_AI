@@ -1,3 +1,10 @@
+import os
+
+# Limit the embedding model's MKL/OpenMP worker allocation on CPU.
+os.environ["MKL_DISABLE_FAST_MM"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+
 try:
     from langchain_chroma import Chroma
 except ModuleNotFoundError:
@@ -8,7 +15,6 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 import hashlib
 import json
-import os
 
 CHROMA_DIR = "vector_db"
 COLLECTION_NAME = "meeting_transcript"
@@ -18,7 +24,8 @@ def get_embedding_model():
     """ for GPU inference, change 'cpu' to 'cuda'"""
     return HuggingFaceEmbeddings(
         model_name = EMBEDDING_MODEL,
-        model_kwargs = {"device" : 'cpu'} 
+        model_kwargs={"device": "cpu"},
+        encode_kwargs={"batch_size": 4},
     )
 
 def build_vector_store(transcript : str)->Chroma:
