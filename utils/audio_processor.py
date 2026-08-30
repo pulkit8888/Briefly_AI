@@ -54,7 +54,7 @@ def download_youtube_audio(url: str, is_cancelled=None) -> str:
 
 
 def convert_to_wav(input_path: str, is_cancelled=None) -> str:
-    """Convert any audio/video file to WAV using ffmpeg, without importing pydub."""
+    """Convert any audio/video file to WAV using ffmpeg"""
     output_path = os.path.splitext(input_path)[0] + "_converted.wav"
     _run_ffmpeg([
         "-i", input_path,
@@ -67,7 +67,7 @@ def convert_to_wav(input_path: str, is_cancelled=None) -> str:
 
 
 def chunk_audio(wav_path: str, chunk_minutes: int = 2, is_cancelled=None) -> list:
-    """Split a WAV file into shorter segments using ffmpeg so STT doesn't see a giant clip."""
+    """Split a WAV file into shorter segments using ffmpeg so SPEECH TO TEXT doesn't see a giant clip."""
     chunk_seconds = max(1, chunk_minutes) * 60
     base_dir = os.path.dirname(wav_path) or '.'
     base_name = os.path.splitext(os.path.basename(wav_path))[0]

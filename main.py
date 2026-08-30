@@ -1,3 +1,12 @@
+import os
+
+# Apply native CPU limits before importing the local ML pipeline.
+os.environ["MKL_DISABLE_FAST_MM"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 from dotenv import load_dotenv
 from utils.audio_processor import process_input
 from core.transcriber import transcribe_all

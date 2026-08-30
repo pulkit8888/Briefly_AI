@@ -25,7 +25,7 @@ def get_embedding_model():
     return HuggingFaceEmbeddings(
         model_name = EMBEDDING_MODEL,
         model_kwargs={"device": "cpu"},
-        encode_kwargs={"batch_size": 4},
+        encode_kwargs={"batch_size": 1},
     )
 
 def build_vector_store(transcript : str)->Chroma:
@@ -50,7 +50,6 @@ def build_vector_store(transcript : str)->Chroma:
 
     # If a persisted vector DB exists, load it and only add new documents
     if os.path.exists(CHROMA_DIR) and any(os.scandir(CHROMA_DIR)):
-        embedding_model = get_embedding_model()
         vector_store = load_vector_store()
 
         # load known hashes

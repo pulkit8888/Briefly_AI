@@ -1,6 +1,7 @@
+import gc
 import os
 
-# Apply these before importing native ML libraries to avoid excessive MKL memory use.
+# Applied these before importing native ML libraries to avoid excessive MKL memory use.
 os.environ["MKL_DISABLE_FAST_MM"] = "1"
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
@@ -28,8 +29,6 @@ def _whisper_language_code(language: str) -> str | None:
     language_map = {
         "english": "en",
         "en": "en",
-        "hindi": "hi",
-        "hi": "hi",
         "hinglish": None,
     }
     return language_map.get(normalized, None)
@@ -40,28 +39,16 @@ def transcribe_chunk_whisper(chunk_path: str, language: str = "english", is_canc
     model = load_model()
     language_code = _whisper_language_code(language)
 
-    try:
-        segments, info = model.transcribe(
-            audio=chunk_path,
-            beam_size=1,
-            vad_filter=True,
-            chunk_length=30,
-            without_timestamps=True,
-            condition_on_previous_text=False,
-            language=language_code,
-        )
-    except TypeError as exc:
-        if "audio" not in str(exc):
-            raise
-        segments, info = model.transcribe(
-            chunk_path,
-            beam_size=1,
-            vad_filter=True,
-            chunk_length=30,
-            without_timestamps=True,
-            condition_on_previous_text=False,
-            language=language_code,
-        )
+    segments, info = model.transcribe(
+        audio=chunk_path,
+        beam_size=1,
+        vad_filter=True,
+        chunk_length=30,
+        without_timestamps=True,
+        condition_on_previous_text=False,
+        language=language_code,
+    )
+
 
     text_parts = []
     for segment in segments:
@@ -72,27 +59,32 @@ def transcribe_chunk_whisper(chunk_path: str, language: str = "english", is_canc
     return " ".join(text_parts).strip()
 
 
-def transcribe_chunk(chunk_path: str, language: str = "english", is_cancelled=None) -> str:
-    """Use the same local Whisper model for English and Hindi audio."""
-    return transcribe_chunk_whisper(chunk_path, language=language, is_cancelled=is_cancelled)
-
-
 def transcribe_all(chunks: list, language: str = "english", is_cancelled=None) -> str:
 
     full_transcript = ""
 
     print("Using Whisper for transcription.")
 
-    for i, chunk in enumerate(chunks):
-        if is_cancelled:
-            is_cancelled()
+    try:
+        for i, chunk in enumerate(chunks):
+            if is_cancelled:
+                is_cancelled()
 
-        print(f"Transcribing chunk {i + 1}/{len(chunks)}...")
+            print(f"Transcribing chunk {i + 1}/{len(chunks)}...")
 
-        text = transcribe_chunk(chunk, language=language, is_cancelled=is_cancelled)
-
-        full_transcript += text + " "
+            text = transcribe_chunk_whisper(
+                chunk, language=language, is_cancelled=is_cancelled
+            )
+            full_transcript += text + " "
+    finally:
+        unload_model()
 
     print("Transcription complete.")
 
     return full_transcript.strip()
+
+
+def unload_model() -> None:
+    global _model
+    _model = None
+    gc.collect()

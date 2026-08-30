@@ -1,3 +1,12 @@
+import os
+
+# Apply native CPU limits before Streamlit or ML libraries can import NumPy/PyTorch.
+os.environ["MKL_DISABLE_FAST_MM"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 import streamlit as st
 import time
 from dotenv import load_dotenv
