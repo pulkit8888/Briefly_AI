@@ -203,18 +203,6 @@ The vector database is persistent and shared across runs. It deduplicates chunks
 
 An already-running remote Mistral request cannot be interrupted by this application; the pipeline stops as soon as that request returns. This is why cancellation may take a short time during an API call.
 
-## Memory settings
-
-`core/transcriber.py` and `core/vector_store.py` set the following before loading native ML libraries:
-
-```text
-MKL_DISABLE_FAST_MM=1
-OMP_NUM_THREADS=1
-MKL_NUM_THREADS=1
-```
-
-Whisper also uses one worker and embedding requests use a batch size of four. These limits reduce memory spikes and help avoid `mkl_malloc: failed to allocate memory` on CPU-only machines. Restart Streamlit after changing code or environment settings so these take effect.
-
 ## Supported languages
 
 | Input | Whisper language value | Availability |
