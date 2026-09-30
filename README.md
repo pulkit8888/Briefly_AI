@@ -10,7 +10,6 @@ Briefly AI accepts a YouTube URL or a local audio/video file path, transcribes i
 - Ask questions about the transcript through a ChromaDB-backed RAG chat.
 - Use Mistral Small as the primary LLM and Mistral Large as the fallback model.
 - Cancel an active analysis when the Streamlit page is refreshed.
-- Limit local ML CPU memory use to help prevent `mkl_malloc` allocation errors.
 
 ## How it works
 
